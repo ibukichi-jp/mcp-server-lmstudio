@@ -5,20 +5,24 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { execSync } from "child_process";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 
-// WSL2環境でホスト（Windows側）のIPを取得する関数
-function getHostIp() {
+const execAsync = promisify(exec);
+
+// WSL2環境でホスト（Windows側）のIPを取得する関数（非同期＆安全フォールバック）
+async function getHostIp() {
   try {
-    const route = execSync("ip route show default 2>/dev/null", { encoding: "utf8" });
-    const match = route.match(/default via (\d+\.\d+\.\d+\.\d+)/);
+    const { stdout } = await execAsync("ip route show default 2>/dev/null");
+    const match = stdout.match(/default via (\d+\.\d+\.\d+\.\d+)/);
     if (match) return match[1];
   } catch {}
   return "localhost";
 }
 
 const DEFAULT_PORT = process.env.LM_STUDIO_PORT || "1234";
-const CANDIDATE_HOSTS = ["localhost", getHostIp()];
+const TIMEOUT_MS = parseInt(process.env.LM_STUDIO_TIMEOUT, 10) || 1500;
+const CANDIDATE_HOSTS = ["localhost", await getHostIp()];
 
 async function getAvailableBaseUrl() {
   if (process.env.LM_STUDIO_BASE_URL) {
@@ -28,7 +32,7 @@ async function getAvailableBaseUrl() {
     const url = `http://${host}:${DEFAULT_PORT}/v1`;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1200);
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
       const res = await fetch(`${url}/models`, { signal: controller.signal });
       clearTimeout(timeoutId);
       if (res.ok) return url;
@@ -40,7 +44,7 @@ async function getAvailableBaseUrl() {
 const server = new Server(
   {
     name: "lm-studio",
-    version: "1.0.0",
+    version: "1.1.0",
   },
   {
     capabilities: {
@@ -65,6 +69,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             system_prompt: {
               type: "string",
               description: "Optional system instructions (e.g. 'You are an expert full-stack developer')",
+            },
+            model: {
+              type: "string",
+              description: "Optional model ID. If omitted, the currently loaded model in LM Studio is used.",
             },
             temperature: {
               type: "number",
@@ -100,7 +108,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "check_lm_studio_status") {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS * 2);
       const res = await fetch(`${baseUrl}/models`, { signal: controller.signal });
       clearTimeout(timeoutId);
       if (!res.ok) {
@@ -161,7 +169,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (request.params.name === "ask_local_llm") {
-    const { prompt, system_prompt, temperature = 0.7 } = request.params.arguments || {};
+    const { prompt, system_prompt, model, temperature = 0.7 } = request.params.arguments || {};
     if (!prompt) {
       return {
         isError: true,
@@ -175,14 +183,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     messages.push({ role: "user", content: prompt });
 
+    const requestBody = {
+      messages,
+      temperature,
+    };
+    if (model) {
+      requestBody.model = model;
+    }
+
     try {
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages,
-          temperature,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!res.ok) {

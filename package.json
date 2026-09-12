@@ -1,15 +1,22 @@
 {
-  "name": "lm-studio",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "mcp-server-lmstudio",
+  "version": "1.1.0",
+  "description": "MCP server bridging LM Studio (local LLM) with Antigravity IDE, Claude Desktop, and other MCP clients with WSL2 auto-detection.",
+  "main": "index.mjs",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.mjs"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "lm-studio",
+    "local-llm",
+    "wsl2"
+  ],
+  "author": "ibukichi-jp",
+  "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "@modelcontextprotocol/sdk": "^1.27.1"
   }
 }
